@@ -1,0 +1,112 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use 5.010;
+
+use YAML;
+use AnyEvent;
+use AnyEvent::DataSift;
+use Getopt::Long;
+
+$|++;
+
+GetOptions(
+	'h|help'               => \my $help,
+	'q|quiet'              => \my $quiet,
+	'u|user|username=s'    => \my $username,
+	'a|k|key|api|apikey=s' => \my $apikey,
+	's|stream=s'           => \my $stream,
+);
+
+sub help {
+	my $err = shift;
+	say $err,'' if $err;
+	print <<EOHELP
+
+$0 options action params
+
+options:
+  -u=username  : DataSift username
+  -a=apikey    : DataSift apikey
+  -quiet : just output receveid data without state
+           notification and tick cursor
+subject & params:
+  stream hash
+  compile "query"
+  balance
+
+eg:
+  $0 -u=batman -a=1652e1a6ab627893d5151ab3a895db31 stream 141667cb8dbe45ba45ac965b928f26d5
+  $0 -u=batman -a=1652e1a6ab627893d5151ab3a895db31 balance
+
+EOHELP
+	;
+	exit 1;
+}
+
+help if $help;
+help 'username missing' unless $username;
+help 'apikey missing' unless $apikey;
+
+my $w = AnyEvent->condvar;
+my $api = AnyEvent::DataSift->new(
+	username => $username,
+	apikey   => $apikey,
+);
+
+my $onerror = sub {
+	my( $code, $reason ) = @_;
+	warn "ERROR ($code) $reason\n";
+	$w->send;
+};
+
+my $ondata = sub {
+	my $data = shift;
+	say Dump $data;
+	$w->send;
+};
+
+my $actions = {
+	stream => sub {
+		help 'hash parameter missing' unless @_;
+		$api->HTTP_stream(
+			hash          => shift,
+			on_connect    => $quiet ? sub{} : sub{ say 'connected' },
+			on_disconnect => sub{ 
+				say 'disconnected' unless $quiet;
+				$w->send('disconnected');
+			},
+			on_data       => sub{ say Dump shift },
+			on_error      => $onerror,
+			on_tick       => $quiet ? {} : sub{
+				state $chars = ["/","-","\\","|"];
+				state $count = 0;
+				print $chars->[++$count % 4],"\r";
+			}
+		);
+	},
+	compile => sub {
+		help 'query parameter missing' unless @_;
+		$api->compile( csdl=>join(' ',@_), on_data=>$ondata, on_error=>$onerror );
+	},
+	balance => sub {
+		$api->balance( on_data=>$ondata, on_error=>$onerror );
+	},
+};
+
+my $cmd = shift;
+help 'unknown action' unless exists $actions->{$cmd};
+
+AnyEvent->signal(
+	signal => 'INT',
+	cb     => sub { $w->send( 'sigint' ) },
+);
+
+$actions->{$cmd}->( @ARGV );
+
+my $msg = $w->recv;
+say '';
+say $msg if $msg;
+
+0;

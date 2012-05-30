@@ -1,7 +1,8 @@
-package AnyEvent::DataSift::HTTP::Stream;
+package AnyEvent::DataSift::Stream::HTTP;
 
-use strict;
 use 5.010;
+use strict;
+use warnings;
 
 use Encode;
 use AnyEvent;
@@ -22,7 +23,7 @@ sub new {
 		protocol      => 'http',
 		username      => undef,
 		apikey        => undef,
-		stream        => undef,
+		hash          => undef,
 		timeout       => 300, #5m
 		useragent     => 'DataSiftPerlConsumer/'.$AnyEvent::DataSift::VERSION,
 		on_connect    => sub{},
@@ -33,9 +34,9 @@ sub new {
 		@_
 	};
 
-	croak 'username required'   unless $self->{username};
-	croak 'apikey required'     unless $self->{apikey};
-	croak 'streamhash required' unless $self->{stream};
+	croak 'username required' unless $self->{username};
+	croak 'apikey required'   unless $self->{apikey};
+	croak 'hash required'     unless $self->{hash};
 	$self->{auth} = $self->{username}.':'.$self->{apikey};
 
 	bless $self, $class;
@@ -61,7 +62,7 @@ sub _receive {
 sub connect {
 	my $self = shift;
 
-	my $uri = URI->new( $self->{protocol}.'://'.$self->{host}.':'.$self->{port}.'/'.($self->{stream}||'') );
+	my $uri = URI->new( $self->{protocol}.'://'.$self->{host}.':'.$self->{port}.'/'.$self->{hash} );
 	$uri->query_form( $self->{params} ) if $self->{method} eq 'POST';
 
 	$self->{watchstream} = http_request(
