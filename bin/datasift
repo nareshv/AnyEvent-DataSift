@@ -90,8 +90,19 @@ my $actions = {
 		help 'query parameter missing' unless @_;
 		$api->compile( csdl=>join(' ',@_), on_data=>$ondata, on_error=>$onerror );
 	},
+	validate => sub {
+		help 'query parameter missing' unless @_;
+		$api->validate( csdl=>join(' ',@_), on_data=>$ondata, on_error=>$onerror );
+	},
+	dpu => sub {
+		help 'hash parameter missing' unless @_;
+		$api->dpu( hash=>shift @_, on_data=>$ondata, on_error=>$onerror );
+	},
 	balance => sub {
 		$api->balance( on_data=>$ondata, on_error=>$onerror );
+	},
+	usage => sub {
+		$api->usage( period=>shift @_,on_data=>$ondata, on_error=>$onerror );
 	},
 };
 
