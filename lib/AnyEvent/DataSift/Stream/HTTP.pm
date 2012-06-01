@@ -44,42 +44,47 @@ sub new {
 	$self;
 }
 
-sub _receive {
-	my( $self, $raw ) = @_;
-	return unless $raw;
-	my $data = eval { decode_json( decode_utf8( $raw ) ) };
-	unless( $data ){
-		warn "invalid json data: $raw";
-		return;
-	}
-	if( $data->{tick} ){
-		$self->{on_tick}->($data);
-	} else {
-		$self->{on_data}->($data);
-	}
-}
-
 sub connect {
 	my $self = shift;
 
+	sub receive {
+		my( $self, $raw ) = @_;
+		return unless $raw;
+		my $data = eval { decode_json( decode_utf8( $raw ) ) };
+		unless( $data ){
+			warn "invalid json data: $raw";
+			return;
+		}
+		if( $data->{tick} ){
+			$self->{on_tick}->($data);
+		} else {
+			$self->{on_data}->($data);
+		}
+	}
+
+	my $headers = {
+		Connection    => 'Keep-Alive',
+		Host          => $self->{host},
+		Authorization => $self->{auth},
+		'User-Agent'  => $self->{useragent},
+	};
+	my $body;
 	my $uri = URI->new( $self->{protocol}.'://'.$self->{host}.':'.$self->{port}.'/'.$self->{hash} );
-	$uri->query_form( $self->{params} ) if $self->{method} eq 'POST';
+	if( $self->{method} eq 'POST' ){
+		$body = join '&', 
+			map $_.'='.URI::Escape::uri_escape($self->{params}{$_}),
+			keys %{$self->{params}};
+		$headers->{'Content-Type'} = 'application/x-www-form-urlencoded';
+	} else {
+		$uri->query_form( $self->{params} );
+	}
 
 	$self->{watchstream} = http_request(
-		$self->{method},
-		$uri,
-		headers => {
-			Connection    => 'Keep-Alive',
-			Host          => $self->{host},
-			Authorization => $self->{auth},
-			'User-Agent'  => $self->{useragent},
-			($self->{method} eq 'POST'
-				? ('Content-Type' => 'application/x-www-form-urlencoded')
-				: ()
-			),
-		},
-		timeout => $self->{timeout},
-		on_header => sub {
+		$self->{method} => $uri,
+		headers         => $headers,
+		body            => $body,
+		timeout         => $self->{timeout},
+		on_header       => sub {
 			my($headers) = @_;
 			if ($headers->{Status} ne '200') {
 				$self->{on_error}->(
@@ -108,13 +113,13 @@ sub connect {
 					$handle->push_read(line => sub {
 					 	length $_[1] and die 'bad chunk (missing last empty line)';
 					});
-					$self->_receive( $chunk );
+					receive( $self, $chunk );
 				});
 			};
 
 			my $line_reader = sub {
 				my($handle, $line) = @_;
-				$self->_receive( $line );
+				receive( $self, $line );
 			};
 
 			$handle->on_error(sub {
